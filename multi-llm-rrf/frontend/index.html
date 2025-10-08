@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>Multi-LLM RRF (Python)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+    .answer { background: #f6f8fa; padding: 1rem; border-radius: 8px; white-space: pre-wrap; }
+    .provider { border: 1px solid #e5e7eb; border-radius: 8px; padding: 0.75rem; margin-top: 0.5rem; }
+    .muted { color: #666; font-size: 0.9rem; }
+    button { padding: 0.5rem 0.8rem; }
+    input[type="text"] { width: 70%; padding: 0.5rem; }
+  </style>
+</head>
+<body>
+  <h1>다중 LLM + RRF (Python)</h1>
+  <form id="form">
+    <input id="q" type="text" placeholder="질문을 입력하세요" required />
+    <button type="submit">질의</button>
+  </form>
+
+  <h2>최종 답변</h2>
+  <div id="winner" class="answer">질의 후 표시됩니다.</div>
+
+  <h3>모델별 결과</h3>
+  <div id="all"></div>
+
+  <script>
+    const form = document.getElementById('form');
+    const q = document.getElementById('q');
+    const winner = document.getElementById('winner');
+    const all = document.getElementById('all');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      winner.textContent = '조회 중...';
+      all.innerHTML = '';
+
+      const resp = await fetch('http://127.0.0.1:8000/ask', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query: q.value })
+      });
+      const data = await resp.json();
+
+      if (data.detail || data.error) {
+        winner.textContent = '오류: ' + (data.detail || data.error);
+        return;
+      }
+
+      winner.textContent = `[${data.winner.provider}] ` + (data.winner.answer || '(빈 응답)');
+      const meta = document.createElement('div');
+      meta.className = 'muted';
+      const score = (data.fused.find(x=>x.id===data.winner.provider)?.score ?? 0).toFixed(4);
+      meta.textContent = `confidence=${data.winner.confidence}, RRF score=${score}`;
+      winner.appendChild(document.createElement('br'));
+      winner.appendChild(meta);
+
+      data.all.forEach(item => {
+        const box = document.createElement('div');
+        box.className = 'provider';
+        box.innerHTML = `
+          <div><strong>${item.provider}</strong></div>
+          <div class="muted">confidence=${item.confidence}</div>
+          <div style="margin-top:6px; white-space:pre-wrap;">${item.answer || '(빈 응답)'}</div>
+        `;
+        all.appendChild(box);
+      });
+    });
+  </script>
+</body>
+</html>
