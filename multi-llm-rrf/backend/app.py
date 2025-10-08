@@ -132,4 +132,4 @@ async def ask(body: AskBody):
     fused = rrf_fuse([ranks1, ranks2, ranks3], k=60)
     winner_id = fused[0]["id"]
     winner = next(x for x in results if x["provider"] == winner_id)
-    return {"query": body.query, "winner": winner, "fused": fused, "all": results
+    return {"query": body.query, "winner": winner, "fused": fused, "all": results}
