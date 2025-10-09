@@ -1,4 +1,3 @@
-
 # app.py
 # Python 3.10+, pip install "fastapi[standard]" httpx python-dotenv
 import os
@@ -12,7 +11,7 @@ import asyncio
 import json
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -31,7 +30,7 @@ def root():
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 필요시 제한
+    allow_origins=["http://127.0.0.1:5500"],  # 필요시 제한
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -90,7 +89,7 @@ async def call_anthropic(query: str) -> Dict[str, Any]:
         "content-type": "application/json",
     }
     payload = {
-        "model": "claude-3-5-sonnet-20241022",
+        "model": "claude-3-opus-20240229",  # 실제 지원되는 모델명으로 변경
         "max_tokens": 800,
         "messages": [{"role": "user", "content": prompt}],
     }
