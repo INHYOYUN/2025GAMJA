@@ -1,5 +1,6 @@
+
 # app.py
-# Python 3.10+, pip install "fastapi[standard]" httpx
+# Python 3.10+, pip install "fastapi[standard]" httpx python-dotenv
 import os
 import re
 from typing import List, Dict, Any
@@ -9,6 +10,10 @@ from pydantic import BaseModel
 import httpx
 import asyncio
 import json
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
@@ -16,7 +21,13 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 if not OPENAI_API_KEY or not ANTHROPIC_API_KEY:
     raise RuntimeError("Set OPENAI_API_KEY and ANTHROPIC_API_KEY environment variables")
 
+
 app = FastAPI(title="Multi-LLM RRF")
+
+# 루트 경로에 안내 메시지 반환
+@app.get("/")
+def root():
+    return {"message": "Multi-LLM RRF API. Use /ask endpoint for queries."}
 
 app.add_middleware(
     CORSMiddleware,
