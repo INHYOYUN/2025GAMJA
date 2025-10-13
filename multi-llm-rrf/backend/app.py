@@ -30,7 +30,7 @@ def root():
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1:5500"],  # 필요시 제한
+    allow_origins=["*"],  # 개발 환경용 - 프로덕션에서는 특정 도메인으로 제한
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -52,31 +52,31 @@ async def call_openai(query: str) -> Dict[str, Any]:
     prompt = f"""질문에 정확히 답하고 JSON으로만 응답하세요.
 필드: answer(string), confidence(0-100 number), notes(string).
 질문: {query}"""
-    url = "https://api.openai.com/v1/responses"
+    url = "https://api.openai.com/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {OPENAI_API_KEY}",
         "Content-Type": "application/json",
     }
     payload = {
-        "model": "gpt-4.1",
-        "input": prompt,
+        "model": "gpt-4",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.7,
     }
-    async with httpx.AsyncClient(timeout=60) as client:
-        r = await client.post(url, headers=headers, json=payload)
-        r.raise_for_status()
-        data = r.json()
-    text = (
-        data.get("output_text")
-        or (data.get("content") or [{}])[0].get("text")
-        or ""
-    ).strip()
-    parsed = {"answer": text, "confidence": 50, "notes": "raw"}
     try:
-        if text:
-            parsed = {**parsed, **json.loads(text)}
-    except Exception:
-        pass
-    return {"provider": "openai", **parsed}
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.post(url, headers=headers, json=payload)
+            r.raise_for_status()
+            data = r.json()
+        text = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+        parsed = {"answer": text, "confidence": 50, "notes": "raw"}
+        try:
+            if text:
+                parsed = {**parsed, **json.loads(text)}
+        except Exception:
+            pass
+        return {"provider": "openai", **parsed}
+    except Exception as e:
+        return {"provider": "openai", "answer": f"Error: {str(e)}", "confidence": 0, "notes": "error"}
 
 async def call_anthropic(query: str) -> Dict[str, Any]:
     prompt = f"""질문에 정확히 답하고 JSON으로만 응답하세요.
@@ -89,22 +89,25 @@ async def call_anthropic(query: str) -> Dict[str, Any]:
         "content-type": "application/json",
     }
     payload = {
-        "model": "claude-3-opus-20240229",  # 실제 지원되는 모델명으로 변경
-        "max_tokens": 800,
+        "model": "claude-3-5-sonnet-20241022",
+        "max_tokens": 1024,
         "messages": [{"role": "user", "content": prompt}],
     }
-    async with httpx.AsyncClient(timeout=60) as client:
-        r = await client.post(url, headers=headers, json=payload)
-        r.raise_for_status()
-        data = r.json()
-    text = ((data.get("content") or [{}])[0].get("text") or "").strip()
-    parsed = {"answer": text, "confidence": 50, "notes": "raw"}
     try:
-        if text:
-            parsed = {**parsed, **json.loads(text)}
-    except Exception:
-        pass
-    return {"provider": "anthropic", **parsed}
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.post(url, headers=headers, json=payload)
+            r.raise_for_status()
+            data = r.json()
+        text = ((data.get("content") or [{}])[0].get("text") or "").strip()
+        parsed = {"answer": text, "confidence": 50, "notes": "raw"}
+        try:
+            if text:
+                parsed = {**parsed, **json.loads(text)}
+        except Exception:
+            pass
+        return {"provider": "anthropic", **parsed}
+    except Exception as e:
+        return {"provider": "anthropic", "answer": f"Error: {str(e)}", "confidence": 0, "notes": "error"}
 
 def rank_by_confidence(items: List[Dict[str, Any]]):
     sorted_items = sorted(items, key=lambda x: (x.get("confidence") or 0), reverse=True)
@@ -132,14 +135,26 @@ def rrf_fuse(rank_lists, k: int = 60):
 async def ask(body: AskBody):
     if not body.query:
         raise HTTPException(status_code=400, detail="query is required")
+    
+    # 각 LLM 호출 (에러가 발생해도 계속 진행)
     results = await asyncio.gather(
         call_openai(body.query),
         call_anthropic(body.query),
+        return_exceptions=True
     )
-    ranks1 = rank_by_confidence(results)
-    ranks2 = rank_by_keyword_overlap(results, body.query)
-    ranks3 = rank_by_brevity(results)
+    
+    # 에러 처리: 모든 호출이 실패한 경우
+    valid_results = [r for r in results if isinstance(r, dict) and not isinstance(r, Exception)]
+    if not valid_results:
+        raise HTTPException(status_code=500, detail="All LLM providers failed")
+    
+    # RRF 랭킹
+    ranks1 = rank_by_confidence(valid_results)
+    ranks2 = rank_by_keyword_overlap(valid_results, body.query)
+    ranks3 = rank_by_brevity(valid_results)
     fused = rrf_fuse([ranks1, ranks2, ranks3], k=60)
+    
     winner_id = fused[0]["id"]
-    winner = next(x for x in results if x["provider"] == winner_id)
-    return {"query": body.query, "winner": winner, "fused": fused, "all": results}
+    winner = next(x for x in valid_results if x["provider"] == winner_id)
+    
+    return {"query": body.query, "winner": winner, "fused": fused, "all": valid_results}
