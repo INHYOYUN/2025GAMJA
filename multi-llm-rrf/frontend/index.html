@@ -26,47 +26,60 @@
   <h3>모델별 결과</h3>
   <div id="all"></div>
 
+
+  <template id="provider-template">
+    <div class="provider">
+      <div><strong></strong></div>
+      <div class="muted"></div>
+      <div class="provider-answer" style="margin-top:6px; white-space:pre-wrap;"></div>
+    </div>
+  </template>
+
   <script>
     const form = document.getElementById('form');
     const q = document.getElementById('q');
     const winner = document.getElementById('winner');
     const all = document.getElementById('all');
+    const providerTemplate = document.getElementById('provider-template');
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       winner.textContent = '조회 중...';
-      all.innerHTML = '';
+      all.replaceChildren();
 
-      const resp = await fetch('http://127.0.0.1:8000/ask', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ query: q.value })
-      });
-      const data = await resp.json();
+      try {
+        const resp = await fetch('http://127.0.0.1:8000/ask', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ query: q.value })
+        });
+        const data = await resp.json().catch(() => null);
+        if (!resp.ok || data?.detail || data?.error) {
+          winner.textContent = '오류: ' + (data?.detail || data?.error || `HTTP ${resp.status}`);
+          return;
+        }
+        if (!data) {
+          winner.textContent = '오류: 서버 응답을 읽을 수 없습니다.';
+          return;
+        }
 
-      if (data.detail || data.error) {
-        winner.textContent = '오류: ' + (data.detail || data.error);
-        return;
+        winner.textContent = `[${data.winner.provider}] ` + (data.winner.answer || '(빈 응답)');
+        const meta = document.createElement('div');
+        meta.className = 'muted';
+        const score = (data.fused.find(x => x.id === data.winner.provider)?.score ?? 0).toFixed(4);
+        meta.textContent = `confidence=${data.winner.confidence}, RRF score=${score}`;
+        winner.append(document.createElement('br'), meta);
+
+        for (const item of data.all) {
+          const card = providerTemplate.content.cloneNode(true);
+          card.querySelector('strong').textContent = item.provider;
+          card.querySelector('.muted').textContent = `confidence=${item.confidence}`;
+          card.querySelector('.provider-answer').textContent = item.answer || '(빈 응답)';
+          all.append(card);
+        }
+      } catch {
+        winner.textContent = '오류: 서버에 연결할 수 없거나 응답이 올바르지 않습니다.';
       }
-
-      winner.textContent = `[${data.winner.provider}] ` + (data.winner.answer || '(빈 응답)');
-      const meta = document.createElement('div');
-      meta.className = 'muted';
-      const score = (data.fused.find(x=>x.id===data.winner.provider)?.score ?? 0).toFixed(4);
-      meta.textContent = `confidence=${data.winner.confidence}, RRF score=${score}`;
-      winner.appendChild(document.createElement('br'));
-      winner.appendChild(meta);
-
-      data.all.forEach(item => {
-        const box = document.createElement('div');
-        box.className = 'provider';
-        box.innerHTML = `
-          <div><strong>${item.provider}</strong></div>
-          <div class="muted">confidence=${item.confidence}</div>
-          <div style="margin-top:6px; white-space:pre-wrap;">${item.answer || '(빈 응답)'}</div>
-        `;
-        all.appendChild(box);
-      });
     });
   </script>
 </body>
