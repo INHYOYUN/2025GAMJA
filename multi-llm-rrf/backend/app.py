@@ -4,27 +4,48 @@ import os
 import re
 import asyncio
 import json
-from typing import List, Dict, Any
-from fastapi import FastAPI, HTTPException
+from ipaddress import ip_address
+from pathlib import Path
+from threading import Lock
+from typing import List, Dict, Any, Literal
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 import httpx
-from dotenv import load_dotenv
+from dotenv import dotenv_values, set_key
 
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
+ENV_FILE = Path(__file__).with_name(".env")
+PROVIDER_ENV = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}
+LOCAL_ORIGINS = [
+    "http://127.0.0.1:5500", "http://localhost:5500",
+    "http://127.0.0.1:8000", "http://localhost:8000",
+]
+# ponytail: one process; use a shared lock/store before supporting multiple workers.
+KEY_LOCK = Lock()
 
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "").strip() or "claude-sonnet-5-5"
+def read_env():
+    try:
+        # Treat API keys literally, including a possible ${...} sequence.
+        return dotenv_values(ENV_FILE, interpolate=False)
+    except (OSError, UnicodeError):
+        raise HTTPException(status_code=500, detail="API 키 설정을 읽을 수 없습니다. backend/.env 파일을 확인해 주세요.") from None
+
+
+file_config = read_env()
+API_KEYS = {
+    provider: os.getenv(name, "").strip() or (file_config.get(name) or "").strip()
+    for provider, name in PROVIDER_ENV.items()
+}
+ANTHROPIC_MODEL = (os.getenv("ANTHROPIC_MODEL") or file_config.get("ANTHROPIC_MODEL") or "").strip() or "claude-sonnet-5-5"
+del file_config
 
 PROMPT = """질문에 정확히 답하고 JSON으로만 응답하세요.
 필드: answer(string), notes(string).
 질문: """
-
-if not OPENAI_API_KEY or not ANTHROPIC_API_KEY:
-    raise RuntimeError("Set OPENAI_API_KEY and ANTHROPIC_API_KEY environment variables")
-
 
 app = FastAPI(title="Multi-LLM RRF")
 
@@ -35,11 +56,86 @@ def root():
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 개발 환경용 - 프로덕션에서는 특정 도메인으로 제한
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=LOCAL_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
+
+
+class RegisterKeyBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider: Literal["openai", "anthropic"]
+    api_key: SecretStr = Field(min_length=1, max_length=512)
+
+    @field_validator("api_key")
+    @classmethod
+    def validate_key_characters(cls, value):
+        # Printable ASCII fits provider headers; no backslashes avoids older dotenv escaping bugs.
+        if any(ord(c) < 33 or ord(c) > 126 or c == "\\" for c in value.get_secret_value()):
+            raise ValueError("API 키에 사용할 수 없는 문자가 있습니다")
+        return value
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request: Request, exc: RequestValidationError):
+    if request.url.path == "/settings/keys":
+        # FastAPI's default validation response includes the raw input.
+        return JSONResponse(status_code=422, content={
+            "detail": "OpenAI 또는 Anthropic을 선택하고 공백·제어 문자·역슬래시가 없는 1~512자의 영문·숫자·기호 API 키를 입력해 주세요."
+        })
+    return await request_validation_exception_handler(request, exc)
+
+
+def require_local_settings(request: Request):
+    try:
+        local_client = request.client is not None and ip_address(request.client.host).is_loopback
+    except ValueError:
+        local_client = False
+    if request.url.hostname not in {"localhost", "127.0.0.1"} or not local_client:
+        raise HTTPException(status_code=403, detail="API 키 설정은 이 컴퓨터의 localhost에서만 사용할 수 있습니다.")
+    if request.method == "POST":
+        origins = request.headers.getlist("origin")
+        if len(origins) != 1 or origins[0] not in LOCAL_ORIGINS:
+            raise HTTPException(status_code=403, detail="로컬 앱 화면에서 API 키 설정을 열어 주세요.")
+
+
+def key_status():
+    # Caller holds KEY_LOCK. Keep active keys; adopt only newly configured keys.
+    if not all(API_KEYS.values()):
+        values = read_env()
+        for provider, name in PROVIDER_ENV.items():
+            if not API_KEYS[provider]:
+                API_KEYS[provider] = (values.get(name) or "").strip()
+    return {"providers": {provider: bool(key) for provider, key in API_KEYS.items()}}
+
+
+@app.get("/settings/keys", dependencies=[Depends(require_local_settings)])
+def get_keys(response: Response):
+    response.headers["Cache-Control"] = "no-store"
+    with KEY_LOCK:
+        return key_status()
+
+
+@app.post("/settings/keys", status_code=201, dependencies=[Depends(require_local_settings)])
+def register_key(body: RegisterKeyBody, response: Response):
+    response.headers["Cache-Control"] = "no-store"
+    with KEY_LOCK:
+        if key_status()["providers"][body.provider]:
+            raise HTTPException(status_code=409, detail="이 제공업체의 API 키가 이미 등록되어 있습니다.")
+        try:
+            if ENV_FILE.is_symlink():
+                raise OSError("The settings file must not be a symlink")
+            if os.name == "posix" and ENV_FILE.exists():
+                # Set permissions before the atomic write so a failed chmod cannot save a key.
+                ENV_FILE.chmod(0o600)
+            if not set_key(ENV_FILE, PROVIDER_ENV[body.provider], body.api_key.get_secret_value())[0]:
+                raise OSError("The settings file was not saved")
+        except (OSError, UnicodeError):
+            raise HTTPException(status_code=500, detail="API 키를 저장하지 못했습니다. backend/.env 파일 권한을 확인한 뒤 다시 시도해 주세요.") from None
+        API_KEYS[body.provider] = body.api_key.get_secret_value()
+        return {"providers": {provider: bool(key) for provider, key in API_KEYS.items()}}
+
 
 class AskBody(BaseModel):
     query: str
@@ -72,7 +168,7 @@ def parse_answer(text: str, provider: str) -> Dict[str, Any]:
 async def call_openai(query: str) -> Dict[str, Any]:
     url = "https://api.openai.com/v1/chat/completions"
     headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Authorization": f"Bearer {API_KEYS['openai']}",
         "Content-Type": "application/json",
     }
     payload = {
@@ -92,7 +188,7 @@ async def call_openai(query: str) -> Dict[str, Any]:
 async def call_anthropic(query: str) -> Dict[str, Any]:
     url = "https://api.anthropic.com/v1/messages"
     headers = {
-        "x-api-key": ANTHROPIC_API_KEY,
+        "x-api-key": API_KEYS["anthropic"],
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
     }
@@ -135,6 +231,9 @@ def rrf_fuse(rank_lists, k: int = 60):
 async def ask(body: AskBody):
     if not body.query.strip():
         raise HTTPException(status_code=400, detail="query is required")
+    with KEY_LOCK:
+        if not all(key_status()["providers"].values()):
+            raise HTTPException(status_code=409, detail="질문하기 전에 API 키 설정에서 OpenAI와 Anthropic 키를 모두 등록해 주세요.")
     
     # 각 LLM 호출 (에러가 발생해도 계속 진행)
     results = await asyncio.gather(
