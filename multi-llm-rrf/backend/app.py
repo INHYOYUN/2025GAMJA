@@ -19,7 +19,7 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "").strip() or "claude-sonnet-5-5"
 
 PROMPT = """질문에 정확히 답하고 JSON으로만 응답하세요.
-필드: answer(string), confidence(0-100 number), notes(string).
+필드: answer(string), notes(string).
 질문: """
 
 if not OPENAI_API_KEY or not ANTHROPIC_API_KEY:
@@ -58,21 +58,14 @@ def parse_answer(text: str, provider: str) -> Dict[str, Any]:
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError:
-        parsed = {"answer": text, "confidence": 50, "notes": "raw"}
+        parsed = {"answer": text, "notes": "raw"}
     if not isinstance(parsed, dict):
         raise ValueError("Expected an answer object")
     answer = parsed.get("answer")
     if not isinstance(answer, str) or not answer.strip():
         raise ValueError("Expected a non-empty answer string")
-    confidence = parsed.get("confidence", 50)
-    try:
-        confidence = 50 if isinstance(confidence, bool) else float(confidence)
-    except (TypeError, ValueError, OverflowError):
-        confidence = 50
-    if not 0 <= confidence <= 100:
-        confidence = 50
     notes = parsed.get("notes", "raw")
-    return {"provider": provider, "answer": answer, "confidence": confidence,
+    return {"provider": provider, "answer": answer,
             "notes": notes if isinstance(notes, str) else "raw"}
 
 
@@ -121,10 +114,6 @@ async def call_anthropic(query: str) -> Dict[str, Any]:
     text = "".join(block["text"] for block in data["content"] if block.get("type") == "text")
     return parse_answer(text, "anthropic")
 
-def rank_by_confidence(items: List[Dict[str, Any]]):
-    sorted_items = sorted(items, key=lambda x: (x.get("confidence") or 0), reverse=True)
-    return [{"id": x["provider"], "rank": i + 1} for i, x in enumerate(sorted_items)]
-
 def rank_by_keyword_overlap(items: List[Dict[str, Any]], query: str):
     qtok = tokenize(query)
     sorted_items = sorted(items, key=lambda x: jaccard(qtok, tokenize(x.get("answer") or "")), reverse=True)
@@ -160,10 +149,9 @@ async def ask(body: AskBody):
         raise HTTPException(status_code=500, detail="All LLM providers failed")
     
     # RRF 랭킹
-    ranks1 = rank_by_confidence(valid_results)
-    ranks2 = rank_by_keyword_overlap(valid_results, body.query)
-    ranks3 = rank_by_brevity(valid_results)
-    fused = rrf_fuse([ranks1, ranks2, ranks3], k=60)
+    ranks1 = rank_by_keyword_overlap(valid_results, body.query)
+    ranks2 = rank_by_brevity(valid_results)
+    fused = rrf_fuse([ranks1, ranks2], k=60)
     
     winner_id = fused[0]["id"]
     winner = next(x for x in valid_results if x["provider"] == winner_id)
