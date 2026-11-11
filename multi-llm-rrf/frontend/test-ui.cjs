@@ -6,12 +6,12 @@ const { chromium } = require('playwright');
 
 const url = 'http://127.0.0.1:8000/';
 const html = readFileSync(join(__dirname, 'index.html'), 'utf8');
-const winner = { provider: 'openai', answer: 'Selected answer', confidence: 80 };
+const winner = { provider: 'openai', answer: 'Selected answer' };
 const answer = '<b>literal HTML</b>';
 const result = {
   winner,
-  fused: [{ id: 'openai', score: 0.0492 }],
-  all: [winner, { provider: 'anthropic', answer, confidence: 65 }],
+  fused: [{ id: 'openai', score: 2 / 61 }],
+  all: [winner, { provider: 'anthropic', answer }],
 };
 
 test('question form', async (t) => {
@@ -39,9 +39,10 @@ test('question form', async (t) => {
     const cards = page.locator('#all .provider');
     await cards.nth(1).waitFor();
     assert.match(await page.locator('#winner').textContent(), /Selected answer/);
-    assert.match(await page.locator('#winner').textContent(), /RRF score=0\.0492/);
+    assert.match(await page.locator('#winner').textContent(), /RRF score=0\.0328/);
     assert.equal(await cards.count(), 2);
-    assert.match(await cards.nth(1).textContent(), /confidence=65/);
+    assert.doesNotMatch(await page.locator('#winner').textContent(), /confidence|undefined/i);
+    assert.doesNotMatch(await page.locator('#all').textContent(), /confidence|undefined/i);
     assert.ok((await cards.nth(1).textContent()).includes(answer));
     assert.equal(await cards.nth(1).locator('b').count(), 0);
   });

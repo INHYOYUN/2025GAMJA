@@ -60,7 +60,7 @@ def parse_answer(text: str, provider: str) -> Dict[str, Any]:
     except json.JSONDecodeError:
         parsed = {"answer": text, "notes": "raw"}
     if not isinstance(parsed, dict):
-        raise ValueError("Expected- an answer object")
+        raise ValueError("Expected an answer object")
     answer = parsed.get("answer")
     if not isinstance(answer, str) or not answer.strip():
         raise ValueError("Expected a non-empty answer string")
