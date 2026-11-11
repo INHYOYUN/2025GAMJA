@@ -30,15 +30,15 @@
     .section-label .number { font-size: 10px; font-weight: 500; color: #a0a89e; letter-spacing: .3px; }
     .provider-picker { display: grid; grid-template-columns: 1fr 1fr 1fr; padding: 4px; border: 1px solid var(--line); border-radius: 9px; background: #eef0ea; gap: 3px; }
     .provider-picker label { text-align: center; position: relative; }
-    .provider-picker input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; z-index: 1; cursor: pointer; }
-    .provider-picker span { display: block; border-radius: 6px; padding: 8px 2px; font-size: 11px; line-height: 16px; color: var(--muted); cursor: pointer; transition: background .15s; }
+    .provider-picker input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+    .provider-picker span { display: block; border-radius: 6px; padding: 8px 2px; font-size: 11px; line-height: 16px; color: #777f75; cursor: pointer; transition: background .15s; }
     .provider-picker input:checked + span { color: var(--teal); background: #fff; box-shadow: 0 1px 3px #26382d0a; font-weight: 600; }
     .field-label { display: block; margin: 16px 0 7px; color: #68746b; font-size: 11px; }
     .key-field { display: flex; align-items: center; background: #fff; border: 1px solid #dce2d8; border-radius: 8px; height: 40px; padding-left: 11px; }
     .key-field:focus-within { outline: 2px solid #bbd1c5; outline-offset: 1px; }
     .key-field > svg { width: 15px; height: 15px; color: #a1aaa0; margin-right: 8px; }
     .key-field input { border: 0; outline: 0; padding: 0; min-width: 0; flex: 1; font-size: 11px; color: var(--ink); background: transparent; }
-    .key-field input::placeholder { color: var(--muted); }
+    .key-field input::placeholder { color: #a4aaa2; }
     .icon-button { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 7px; color: #8a9489; }
     .icon-button svg { width: 17px; height: 17px; }
     .icon-button:hover { background: #e9eee7; }
@@ -116,17 +116,6 @@
     .provider-answer { margin-top: 10px; white-space: pre-wrap; line-height: 1.85; }
     .muted { margin-top: 7px; color: #6a7863; font-size: 11px; line-height: 1.7; }
     @media (max-width: 760px) { .answer { padding: 18px; } .question { max-width: 95%; } }
-    .provider-picker input:focus-visible + span { outline: 2px solid var(--teal); outline-offset: 2px; }
-    .provider-picker small { display: block; margin-top: 3px; font-size: 9px; font-weight: 400; }
-    .key-status { margin: 12px 0 4px; font-size: 11px; line-height: 1.7; overflow-wrap: anywhere; color: var(--teal); }
-    .refresh-keys { padding: 5px 0; font-size: 10px; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
-    .setup-hint { color: var(--teal); font-size: 11px; line-height: 1.7; }
-    .model-catalog { margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #fbfcf8; }
-    .model-catalog h4 { margin: 0 0 8px; font-size: 11px; font-weight: 600; }
-    .model-list { max-height: 164px; overflow: auto; padding: 0; margin: 0; list-style: none; scrollbar-width: thin; }
-    .model-list li { padding: 7px 2px; color: var(--muted); font-size: 11px; line-height: 1.7; overflow-wrap: anywhere; border-bottom: 1px solid var(--line); }
-    .model-list li:last-child { border-bottom: 0; }
-    .model-list:focus-visible { outline: 2px solid var(--teal); outline-offset: -2px; }
   </style>
 </head>
 <body>
@@ -150,31 +139,17 @@
         <p class="intro">함께 답을 찾을 AI를 구성하는 공간입니다.</p>
         <section aria-labelledby="connection-title">
           <h3 class="section-label" id="connection-title"><span class="number">01</span> API 연결</h3>
-          <form id="key-form" autocomplete="off">
-            <fieldset class="settings-fields" id="api-fields" disabled aria-label="API 키 등록" aria-describedby="key-note">
-              <div class="provider-picker">
-                <label><input type="radio" name="api-provider" value="openai" checked><span>OpenAI<small id="openai-key-state">확인 중</small></span></label>
-                <label><input type="radio" name="api-provider" value="anthropic"><span>Anthropic<small id="anthropic-key-state">확인 중</small></span></label>
-                <label><input type="radio" name="api-provider" value="google" disabled><span>Google<small>준비 중</small></span></label>
-              </div>
-              <div id="key-entry">
-                <label class="field-label" for="api-key"><span id="key-provider">OpenAI</span> API 키</label>
-                <div class="key-field"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2"/></svg><input id="api-key" type="password" placeholder="등록할 API 키를 입력하세요" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="512" required aria-describedby="key-note"></div>
-                <button class="load-button" id="save-key" type="submit">키 확인 후 저장</button>
-              </div>
-            </fieldset>
-          </form>
-          <p class="help-text" id="registered-key-note" hidden>이미 등록된 키를 사용합니다. 변경하려면 서버의 .env를 수정하고 서버를 재시작하세요.</p>
-          <p class="help-text" id="key-note">모델 목록 접근이 확인된 키를 이 PC의 .env에 저장합니다. 저장된 키는 아래 버튼으로 다시 확인할 수 있습니다.</p>
-          <p class="key-status" id="key-status" role="status" aria-live="polite">API 키 등록 상태를 확인하고 있습니다.</p>
-          <button class="refresh-keys" id="refresh-keys" type="button" disabled>등록 상태 다시 확인</button>
-          <button class="load-button" id="load-models" type="button" hidden disabled>연결 확인·모델 조회</button>
-          <p class="key-status" id="model-status" role="status" aria-live="polite" hidden></p>
-          <section class="model-catalog" id="model-catalog" aria-labelledby="model-catalog-title" hidden>
-            <h4 id="model-catalog-title"></h4>
-            <ul class="model-list" id="model-list" tabindex="0" aria-label="조회된 모델 목록"></ul>
-            <p class="help-text">조회는 목록 접근 권한을 확인합니다. 모델별 사용 권한·잔액·검색 지원을 보장하지 않습니다. 질문 모델 선택은 준비 중입니다.</p>
-          </section>
+          <fieldset class="settings-fields" disabled aria-label="API 연결 준비 중" aria-describedby="key-note">
+            <div class="provider-picker">
+              <label><input type="radio" name="api-provider" value="OpenAI" checked><span>OpenAI</span></label>
+              <label><input type="radio" name="api-provider" value="Anthropic"><span>Anthropic</span></label>
+              <label><input type="radio" name="api-provider" value="Google"><span>Google</span></label>
+            </div>
+            <label class="field-label" for="api-key">API 키</label>
+            <div class="key-field"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2"/></svg><input id="api-key" type="password" placeholder="웹에서 키 등록 · 준비 중" autocomplete="off" spellcheck="false"></div>
+            <button class="load-button" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 8a8 8 0 0 0-14-2L3 9m0-5v5h5m-4 7a8 8 0 0 0 14 2l3-3m0 5v-5h-5"/></svg> 모델 불러오기</button>
+          </fieldset>
+          <p class="help-text" id="key-note"><svg aria-hidden="true"><use href="#info"/></svg> 현재 API 키는 서버의 .env에서 설정하세요.</p>
         </section>
         <div class="divider"></div>
         <section aria-labelledby="roles-title">
@@ -206,7 +181,7 @@
       </div>
       <div class="sidebar-footer">
         <button class="apply-button" type="button" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg> 설정 적용</button>
-        <p class="footer-note">API 키는 저장 즉시 반영됩니다. 모델 설정은 준비 중입니다.</p>
+        <p class="footer-note">웹 설정 기능 연결 전입니다.</p>
       </div>
     </aside>
     <main class="main" id="main">
@@ -234,10 +209,9 @@
           <textarea id="q" rows="2" placeholder="궁금한 내용을 자유롭게 물어보세요." required></textarea>
           <div class="composer-tools">
             <span class="composer-label"><svg aria-hidden="true"><use href="#sparkle"/></svg> 두 AI의 답변을 비교해요</span>
-            <button class="send-button" type="submit" disabled aria-label="질의" title="질문 보내기"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button>
+            <button class="send-button" type="submit" aria-label="질의" title="질문 보내기"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button>
           </div>
         </form>
-        <p class="composer-hint setup-hint" id="setup-hint" role="status">API 키 등록 상태를 확인하고 있습니다.</p>
         <p class="composer-hint">Enter로 보내기 <span>·</span> Shift + Enter로 줄바꿈</p>
       </div>
     </main>
@@ -257,193 +231,7 @@
     const providerTemplate = document.getElementById('provider-template');
     const results = document.getElementById('results');
     const chatBody = document.getElementById('chat-body');
-    const API_BASE = 'http://127.0.0.1:8000';
-    const providerNames = { openai: 'OpenAI', anthropic: 'Anthropic' };
-    const keyForm = document.getElementById('key-form');
-    const apiFields = document.getElementById('api-fields');
-    const keyInput = document.getElementById('api-key');
-    const keyStatus = document.getElementById('key-status');
-    const refreshKeysButton = document.getElementById('refresh-keys');
-    const saveKeyButton = document.getElementById('save-key');
-    const setupHint = document.getElementById('setup-hint');
-    const loadModelsButton = document.getElementById('load-models');
-    const modelStatus = document.getElementById('model-status');
-    const modelCatalog = document.getElementById('model-catalog');
-    const modelList = document.getElementById('model-list');
-    const modelLists = { openai: null, anthropic: null };
-    const modelNotices = { openai: '', anthropic: '' };
-    let isLoadingModels = false;
-    let keyState = null;
-    let keysLoading = true;
-    let isSavingKey = false;
     let isLoading = false;
-
-    function selectedProvider() {
-      return keyForm.querySelector('[name="api-provider"]:checked').value;
-    }
-
-    function keysReady() {
-      return keyState?.openai && keyState?.anthropic;
-    }
-
-    function updateKeyControls() {
-      const provider = selectedProvider();
-      const registered = Boolean(keyState?.[provider]);
-      apiFields.disabled = keysLoading || isSavingKey || isLoadingModels || !keyState;
-      keyInput.disabled = registered;
-      saveKeyButton.disabled = keysLoading || isSavingKey || isLoadingModels || !keyState || registered;
-      refreshKeysButton.disabled = keysLoading || isSavingKey || isLoadingModels;
-      loadModelsButton.hidden = !registered;
-      loadModelsButton.disabled = keysLoading || isSavingKey || isLoadingModels || !registered;
-      document.getElementById('key-entry').hidden = registered;
-      document.getElementById('registered-key-note').hidden = !registered;
-      document.getElementById('key-provider').textContent = providerNames[provider];
-      for (const name of Object.keys(providerNames)) {
-        document.getElementById(name + '-key-state').textContent = !keyState ? '확인 필요' : keyState[name] ? '등록됨' : '미등록';
-      }
-      submitButton.disabled = isLoading || keysLoading || !keysReady();
-      setupHint.hidden = Boolean(keysReady());
-      setupHint.textContent = keyState ? 'AI 설정에서 미등록 API 키를 등록해 주세요.' : 'AI 설정에서 서버 연결과 키 등록 상태를 확인해 주세요.';
-      renderModels();
-    }
-
-    function acceptModelResult(data, provider) {
-      if (data?.provider !== provider || data?.verified !== true || !Array.isArray(data.models)
-          || !data.models.every(model => typeof model?.id === 'string' && model.id.trim()
-            && typeof model.display_name === 'string')) {
-        throw new Error('Invalid model response');
-      }
-      modelLists[provider] = data.models.map(model => ({id: model.id, display_name: model.display_name}));
-      modelNotices[provider] = data.models.length
-        ? providerNames[provider] + ' 모델 목록 접근이 확인되었습니다.'
-        : '모델 목록 접근은 확인됐지만 조회된 모델이 없습니다.';
-    }
-
-    function renderModels() {
-      const provider = selectedProvider();
-      const models = modelLists[provider];
-      modelStatus.hidden = !keyState?.[provider];
-      modelStatus.textContent = modelNotices[provider] || '저장된 키의 목록 접근 권한은 조회 버튼으로 확인해 주세요.';
-      modelCatalog.hidden = !keyState?.[provider] || models === null;
-      modelList.replaceChildren();
-      if (models !== null) {
-        document.getElementById('model-catalog-title').textContent = providerNames[provider] + ' 조회 모델 (' + models.length + '개)';
-        modelList.hidden = models.length === 0;
-        for (const model of models) {
-          const item = document.createElement('li');
-          item.textContent = model.display_name && model.display_name !== model.id
-            ? model.display_name + ' · ' + model.id : model.id;
-          modelList.append(item);
-        }
-      }
-    }
-
-    function acceptKeyState(data) {
-      if (typeof data?.providers?.openai !== 'boolean' || typeof data?.providers?.anthropic !== 'boolean') {
-        throw new Error('Invalid key status');
-      }
-      keyState = { openai: data.providers.openai, anthropic: data.providers.anthropic };
-      const missing = Object.keys(providerNames).find(name => !keyState[name]);
-      if (missing && keyState[selectedProvider()]) {
-        keyForm.querySelector(`[value="${missing}"]`).checked = true;
-      }
-      keyInput.value = '';
-    }
-
-    function registrationMessage() {
-      return keysReady() ? '두 제공자의 키가 등록되어 있습니다. 질문을 입력해 주세요.' : '미등록 제공자의 API 키를 입력해 주세요.';
-    }
-
-    async function refreshKeys() {
-      keysLoading = true;
-      for (const provider of Object.keys(providerNames)) {
-        modelLists[provider] = null;
-        modelNotices[provider] = '';
-      }
-      keyInput.value = '';
-      updateKeyControls();
-      keyStatus.textContent = 'API 키 등록 상태를 확인하고 있습니다.';
-      try {
-        const response = await fetch(API_BASE + '/settings/keys', { cache: 'no-store', signal: AbortSignal.timeout(10000) });
-        if (!response.ok) throw new Error('Status unavailable');
-        acceptKeyState(await response.json());
-        keyStatus.textContent = registrationMessage();
-      } catch {
-        keyState = null;
-        keyStatus.textContent = '등록 상태를 확인하지 못했습니다. 서버 실행과 접속 주소를 확인한 뒤 다시 확인해 주세요.';
-      } finally {
-        keysLoading = false;
-        updateKeyControls();
-      }
-    }
-
-    loadModelsButton.addEventListener('click', async () => {
-      if (isLoadingModels || keysLoading || isSavingKey || !keyState?.[selectedProvider()]) return;
-      const provider = selectedProvider();
-      isLoadingModels = true;
-      modelLists[provider] = null;
-      modelNotices[provider] = '모델 목록 접근 권한을 확인하고 있습니다.';
-      updateKeyControls();
-      try {
-        const response = await fetch(API_BASE + '/settings/models', {
-          method: 'POST', headers: {'content-type': 'application/json'},
-          body: JSON.stringify({provider}), signal: AbortSignal.timeout(30000),
-        });
-        const data = await response.json().catch(() => null);
-        if (!response.ok) {
-          if (response.status === 409) await refreshKeys();
-          modelNotices[provider] = typeof data?.detail === 'string' ? data.detail : '모델 목록을 확인하지 못했습니다. 다시 시도해 주세요.';
-          return;
-        }
-        acceptModelResult(data, provider);
-      } catch {
-        modelNotices[provider] = '모델 목록을 확인하지 못했습니다. 서버 연결을 확인하고 다시 시도해 주세요.';
-      } finally {
-        isLoadingModels = false;
-        updateKeyControls();
-      }
-    });
-
-    refreshKeysButton.addEventListener('click', refreshKeys);
-    keyForm.querySelectorAll('[name="api-provider"]').forEach(input => input.addEventListener('change', () => {
-      keyInput.value = '';
-      updateKeyControls();
-    }));
-    keyForm.addEventListener('submit', async event => {
-      event.preventDefault();
-      if (isSavingKey || isLoadingModels || keysLoading || !keyState || keyState[selectedProvider()]) return;
-      if (!keyInput.value.trim()) {
-        keyStatus.textContent = 'API 키를 입력해 주세요.';
-        return;
-      }
-      const provider = selectedProvider();
-      const payload = JSON.stringify({ provider, api_key: keyInput.value.trim() });
-      keyInput.value = '';
-      isSavingKey = true;
-      updateKeyControls();
-      keyStatus.textContent = '모델 목록 접근 권한을 확인한 뒤 키를 저장합니다.';
-      try {
-        const response = await fetch(API_BASE + '/settings/keys', {
-          method: 'POST', headers: { 'content-type': 'application/json' }, body: payload,
-          signal: AbortSignal.timeout(30000),
-        });
-        const data = await response.json().catch(() => null);
-        if (!response.ok) {
-          if (response.status === 409) await refreshKeys();
-          else keyStatus.textContent = (typeof data?.detail === 'string' ? data.detail : 'API 키를 저장하지 못했습니다.') + ' 키를 다시 입력해 주세요.';
-          return;
-        }
-        acceptKeyState(data);
-        acceptModelResult(data, provider);
-        keyStatus.textContent = providerNames[provider] + ' 모델 목록 접근을 확인하고 키를 저장했습니다. ' + registrationMessage();
-      } catch {
-        keyState = null;
-        keyStatus.textContent = '저장 결과를 확인하지 못했습니다. 등록 상태 다시 확인을 눌러 주세요.';
-      } finally {
-        isSavingKey = false;
-        updateKeyControls();
-      }
-    });
 
     q.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
@@ -455,11 +243,6 @@
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       if (isLoading) return;
-      if (keysLoading || !keysReady()) {
-        keyStatus.textContent = '질문하기 전에 API 키 등록 상태를 확인해 주세요.';
-        if (mobile.matches) setDrawer(true);
-        return;
-      }
       isLoading = true;
       submitButton.disabled = true;
       document.getElementById('welcome').hidden = true;
@@ -472,7 +255,7 @@
       all.replaceChildren();
 
       try {
-        const resp = await fetch(API_BASE + '/ask', {
+        const resp = await fetch('http://127.0.0.1:8000/ask', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ query: q.value })
@@ -480,7 +263,6 @@
         const data = await resp.json().catch(() => null);
         if (!resp.ok || data?.detail || data?.error) {
           winner.textContent = '오류: ' + (data?.detail || data?.error || `HTTP ${resp.status}`);
-          if (resp.status === 409) await refreshKeys();
           return;
         }
         if (!data) {
@@ -505,7 +287,7 @@
         winner.textContent = '오류: 서버에 연결할 수 없거나 응답이 올바르지 않습니다.';
       } finally {
         isLoading = false;
-        updateKeyControls();
+        submitButton.disabled = false;
         results.setAttribute('aria-busy', 'false');
       }
     });
@@ -557,7 +339,6 @@
       if (needsFocus) (mobile.matches ? openSettings : q).focus();
     });
     sidebar.inert = mobile.matches;
-    refreshKeys();
   </script>
 </body>
 </html>

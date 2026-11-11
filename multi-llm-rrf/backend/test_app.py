@@ -10,7 +10,7 @@ import httpx
 with patch.dict(os.environ, {
     "OPENAI_API_KEY": "test-openai", "ANTHROPIC_API_KEY": "test-anthropic",
     "ANTHROPIC_MODEL": "claude-sonnet-5-5",
-}), patch("dotenv.dotenv_values", return_value={}):
+}), patch("dotenv.load_dotenv"):
     import app
 
 
