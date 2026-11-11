@@ -1,3 +1,5 @@
 fastapi[standard]
 httpx
 python-dotenv
+openai==3.49.0
+anthropic==2.8.0
