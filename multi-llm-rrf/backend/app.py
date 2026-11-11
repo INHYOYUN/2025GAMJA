@@ -1,5 +1,5 @@
 # app.py
-# Python 3.10+, pip install "fastapi[standard]" httpx python-dotenv
+# Python 3.10+, pip install -r requirements.txt
 import os
 import re
 import asyncio
@@ -15,6 +15,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 import httpx
+import openai
+import anthropic
 from dotenv import dotenv_values, set_key
 
 ENV_FILE = Path(__file__).with_name(".env")
@@ -25,6 +27,7 @@ LOCAL_ORIGINS = [
 ]
 # ponytail: one process; use a shared lock/store before supporting multiple workers.
 KEY_LOCK = Lock()
+MODEL_LIST_DEADLINE = 20.0
 
 
 def read_env():
@@ -63,6 +66,19 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def settings_no_store(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path in {"/settings/keys", "/settings/models"}:
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+class ListModelsBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider: Literal["openai", "anthropic"]
+
+
 class RegisterKeyBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     provider: Literal["openai", "anthropic"]
@@ -79,10 +95,11 @@ class RegisterKeyBody(BaseModel):
 
 @app.exception_handler(RequestValidationError)
 async def validation_error(request: Request, exc: RequestValidationError):
-    if request.url.path == "/settings/keys":
+    if request.url.path in {"/settings/keys", "/settings/models"}:
         # FastAPI's default validation response includes the raw input.
         return JSONResponse(status_code=422, content={
-            "detail": "OpenAI 또는 Anthropic을 선택하고 공백·제어 문자·역슬래시가 없는 1~512자의 영문·숫자·기호 API 키를 입력해 주세요."
+            "detail": "OpenAI 또는 Anthropic만 선택해 주세요." if request.url.path == "/settings/models" else
+                      "OpenAI 또는 Anthropic을 선택하고 공백·제어 문자·역슬래시가 없는 1~512자의 영문·숫자·기호 API 키를 입력해 주세요."
         })
     return await request_validation_exception_handler(request, exc)
 
@@ -117,10 +134,85 @@ def get_keys(response: Response):
         return key_status()
 
 
-@app.post("/settings/keys", status_code=201, dependencies=[Depends(require_local_settings)])
-def register_key(body: RegisterKeyBody, response: Response):
-    response.headers["Cache-Control"] = "no-store"
+async def list_verified_models(provider: str, api_key: str):
+    """Verify only model-list access; keep SDK clients and catalogs request-scoped."""
+    sdk = openai if provider == "openai" else anthropic
+    client_type = openai.AsyncOpenAI if provider == "openai" else anthropic.AsyncAnthropic
+    base_url = "https://api.openai.com/v1" if provider == "openai" else "https://api.anthropic.com"
+
+    async def bind_candidate_key(request):
+        # SDK custom-header environment variables must not substitute another credential/host.
+        request.headers["Authorization"] = f"Bearer {api_key}"
+        request.headers["Host"] = f"api.{provider}.com"
+        request.headers.pop("x-api-key", None)
+
+    async def collect_models():
+        models = {}
+        async with sdk.DefaultAsyncHttpxClient(
+            follow_redirects=False, event_hooks={"request": [bind_candidate_key]}
+        ) as http_client:
+            async with client_type(api_key=api_key, base_url=base_url, timeout=10.0,
+                                   max_retries=0, http_client=http_client) as client:
+                page = await client.models.list()
+                # Use the SDK's cursor handling; OpenAI currently returns a single page.
+                async for page in page.iter_pages():
+                    if not isinstance(getattr(page, "data", None), list):
+                        raise ValueError("Invalid model list")
+                    if provider == "anthropic":
+                        if page.has_more is not None and not isinstance(page.has_more, bool):
+                            raise ValueError("Invalid model pagination")
+                        if page.has_more is True and (
+                            not page.data or not isinstance(page.last_id, str) or not page.last_id.strip()
+                        ):
+                            raise ValueError("Incomplete model list")
+                    for model in page.data:
+                        model_id = getattr(model, "id", None)
+                        if not isinstance(model_id, str) or not model_id.strip():
+                            raise ValueError("Invalid model identifier")
+                        name = getattr(model, "display_name", None) if provider == "anthropic" else None
+                        if name is not None and not isinstance(name, str):
+                            raise ValueError("Invalid model name")
+                        if api_key in model_id or (name and api_key in name):
+                            raise ValueError("Credential echoed in model list")
+                        models[model_id] = {"id": model_id, "display_name": name or model_id}
+        return [models[model_id] for model_id in sorted(models)]
+
+    try:
+        return await asyncio.wait_for(collect_models(), timeout=MODEL_LIST_DEADLINE)
+    except (openai.APITimeoutError, anthropic.APITimeoutError, asyncio.TimeoutError):
+        raise HTTPException(status_code=504, detail="모델 목록 확인 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.") from None
+    except (openai.APIStatusError, anthropic.APIStatusError) as exc:
+        errors = {
+            401: "API 키 인증에 실패했습니다. 키를 확인해 주세요.",
+            403: "이 API 키에는 모델 목록을 조회할 권한이 없습니다. 제공업체의 권한 설정을 확인해 주세요.",
+            429: "제공업체의 요청 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.",
+        }
+        status = exc.status_code if exc.status_code in errors else 502
+        raise HTTPException(status_code=status, detail=errors.get(status,
+            "제공업체의 모델 목록을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.")) from None
+    except (openai.APIError, anthropic.APIError, ValueError, TypeError, AttributeError):
+        raise HTTPException(status_code=502, detail="제공업체의 모델 목록을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.") from None
+
+
+@app.post("/settings/models", dependencies=[Depends(require_local_settings)])
+async def list_models(body: ListModelsBody):
     with KEY_LOCK:
+        if not key_status()["providers"][body.provider]:
+            raise HTTPException(status_code=409, detail="먼저 이 제공업체의 API 키를 등록해 주세요.")
+        api_key = API_KEYS[body.provider]
+    models = await list_verified_models(body.provider, api_key)
+    return {"provider": body.provider, "verified": True, "models": models}
+
+
+@app.post("/settings/keys", status_code=201, dependencies=[Depends(require_local_settings)])
+async def register_key(body: RegisterKeyBody):
+    with KEY_LOCK:
+        if key_status()["providers"][body.provider]:
+            raise HTTPException(status_code=409, detail="이 제공업체의 API 키가 이미 등록되어 있습니다.")
+    api_key = body.api_key.get_secret_value()
+    models = await list_verified_models(body.provider, api_key)
+    with KEY_LOCK:
+        # Another registration or an external .env edit may have won during the network wait.
         if key_status()["providers"][body.provider]:
             raise HTTPException(status_code=409, detail="이 제공업체의 API 키가 이미 등록되어 있습니다.")
         try:
@@ -129,12 +221,13 @@ def register_key(body: RegisterKeyBody, response: Response):
             if os.name == "posix" and ENV_FILE.exists():
                 # Set permissions before the atomic write so a failed chmod cannot save a key.
                 ENV_FILE.chmod(0o600)
-            if not set_key(ENV_FILE, PROVIDER_ENV[body.provider], body.api_key.get_secret_value())[0]:
+            if not set_key(ENV_FILE, PROVIDER_ENV[body.provider], api_key)[0]:
                 raise OSError("The settings file was not saved")
         except (OSError, UnicodeError):
             raise HTTPException(status_code=500, detail="API 키를 저장하지 못했습니다. backend/.env 파일 권한을 확인한 뒤 다시 시도해 주세요.") from None
-        API_KEYS[body.provider] = body.api_key.get_secret_value()
-        return {"providers": {provider: bool(key) for provider, key in API_KEYS.items()}}
+        API_KEYS[body.provider] = api_key
+        return {"providers": {provider: bool(key) for provider, key in API_KEYS.items()},
+                "provider": body.provider, "verified": True, "models": models}
 
 
 class AskBody(BaseModel):
