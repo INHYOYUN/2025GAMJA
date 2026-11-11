@@ -253,7 +253,7 @@ npx playwright install chromium
 node --test multi-llm-rrf/frontend/test-ui.cjs
 ```
 
-**5개 시나리오**에서 정상 결과와 HTML 문자열 표시, 연결 실패, 비JSON 응답, 상세 메시지가 있는 HTTP 400, 상세 메시지가 없는 HTTP 503을 확인합니다. Node 테스트 출력에는 상위 그룹을 포함해 6개로 집계됩니다.
+**6개 시나리오**에서 정상 결과와 HTML 문자열 표시, 처리 중 중복 제출 차단, 연결 실패, 비JSON 응답, 상세 메시지가 있는 HTTP 400, 상세 메시지가 없는 HTTP 503을 확인합니다. 성공·실패 후 다시 질문할 수 있는지도 검증합니다. Node 테스트 출력에는 상위 그룹을 포함해 7개로 집계됩니다.
 
 이미 설치된 Chrome을 사용하려면 `CHROME_PATH` 환경변수에 실행 파일 경로를 지정할 수 있습니다.
 

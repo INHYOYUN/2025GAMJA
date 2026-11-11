@@ -46,6 +46,46 @@ test('question form', async (t) => {
     assert.equal(await cards.nth(1).locator('b').count(), 0);
   });
 
+  await t.test('ignores repeated submissions while a question is pending', async (t) => {
+    let releaseResponse;
+    const pendingResponse = new Promise((resolve) => { releaseResponse = resolve; });
+    t.after(() => releaseResponse());
+    const page = await submit(t, async (route) => {
+      await pendingResponse;
+      await route.fulfill({ json: result });
+    });
+    const button = page.getByRole('button', { name: '질의' });
+
+    // requestSubmit also exercises the guard independently of the disabled button.
+    const duplicateRequests = await page.evaluate(() => {
+      const originalFetch = window.fetch;
+      let count = 0;
+      window.fetch = (...args) => { count++; return originalFetch(...args); };
+      try {
+        document.getElementById('form').requestSubmit();
+        document.getElementById('form').requestSubmit();
+        return count;
+      } finally {
+        window.fetch = originalFetch;
+      }
+    });
+    assert.equal(duplicateRequests, 0);
+    assert.equal(await button.isDisabled(), true);
+
+    releaseResponse();
+    await page.locator('#winner').filter({ hasText: 'Selected answer' }).waitFor();
+    assert.equal(await button.isEnabled(), true);
+    assert.equal(await page.locator('#all .provider').count(), 2);
+
+    await page.locator('#q').fill('Next question');
+    const nextRequest = page.waitForRequest((request) =>
+      request.url() === url + 'ask' && request.postDataJSON().query === 'Next question');
+    await button.click();
+    await nextRequest;
+    await page.locator('#winner').filter({ hasText: 'Selected answer' }).waitFor();
+    assert.equal(await page.locator('#all .provider').count(), 2);
+  });
+
   const errors = [
     ['connection failure', (route) => route.abort('failed'), /오류:/],
     ['non-JSON response', (route) => route.fulfill({ body: '<p>Unavailable</p>' }), /오류:/],
@@ -59,9 +99,16 @@ test('question form', async (t) => {
 
   for (const [name, respond, message] of errors) {
     await t.test(name, async (t) => {
-      const page = await submit(t, respond);
+      let attempts = 0;
+      const page = await submit(t, (route) =>
+        ++attempts === 1 ? respond(route) : route.fulfill({ json: result }));
       await page.locator('#winner').filter({ hasText: message }).waitFor();
       assert.equal(await page.locator('#all .provider').count(), 0);
+      const button = page.getByRole('button', { name: '질의' });
+      assert.equal(await button.isEnabled(), true);
+      await button.click();
+      await page.locator('#winner').filter({ hasText: 'Selected answer' }).waitFor();
+      assert.equal(await page.locator('#all .provider').count(), 2);
     });
   }
 });
